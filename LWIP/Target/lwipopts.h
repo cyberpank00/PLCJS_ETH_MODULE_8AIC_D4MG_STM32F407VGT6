@@ -126,7 +126,9 @@
  * opt.h defaults (4 netconns, 2 netbufs, 5 TCP PCBs) are too tight. */
 #define MEMP_NUM_NETCONN 8
 #define MEMP_NUM_NETBUF 8
-#define MEMP_NUM_TCP_PCB 8
+/* 4 live + listener + a few TIME_WAIT/closing pcbs from client-side closes;
+ * when this pool is empty LwIP silently drops new SYNs. */
+#define MEMP_NUM_TCP_PCB 12
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

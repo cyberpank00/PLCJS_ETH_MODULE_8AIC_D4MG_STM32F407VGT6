@@ -32,13 +32,18 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "lwip/tcp.h"
+#include "lwip/tcpip.h"
 
 #include "modbus_app.h"
 #include "nanomodbus.h"
 #include "settings.h"
 
-/* Physical link state from ethernet_link_thread. */
-extern volatile uint8_t g_eth_any_link_up;
+/* Debounced link state from ethernet_link_thread (follows the netif, 2 s to
+ * drop). NOT the instantaneous g_eth_any_link_up: the KSZ8863 port blips
+ * link-down several times while auto-negotiation settles after a cable is
+ * plugged back, and dropping the clients on each blip kept killing freshly
+ * accepted connections for ~10 s. */
+extern volatile uint8_t g_eth_link_stable;
 
 /* ---------------------------------------------------------------------------
  * Tunables
@@ -171,11 +176,40 @@ static void mb_sleep(uint32_t ms, void* arg)
 /* ---------------------------------------------------------------------------
  * Slot lifecycle
  * ------------------------------------------------------------------------- */
+/* Abort the TCP pcb behind a netconn (RST instead of FIN), synchronously,
+ * under the LwIP core lock. The netconn's err callback detaches the pcb
+ * (pcb.tcp = NULL), so the following netconn_delete() only frees the netconn.
+ *
+ * Must be synchronous: with LWIP_TCPIP_CORE_LOCKING the netconn API calls run
+ * directly in the caller under the core lock, whereas tcpip_callback() is
+ * queued to the tcpip thread. A queued abort would run AFTER netconn_delete()
+ * has freed (and the next accept has reused) the netconn — and kill the new
+ * connection instead. That was fw 2.8: every accepted client died at once. */
+static void conn_abort(struct netconn* conn)
+{
+#if LWIP_TCPIP_CORE_LOCKING
+    LOCK_TCPIP_CORE();
+    if (conn->pcb.tcp != NULL) {
+        tcp_abort(conn->pcb.tcp);
+    }
+    UNLOCK_TCPIP_CORE();
+#else
+#error "conn_abort() relies on LWIP_TCPIP_CORE_LOCKING; without it use a blocking tcpip_api_call()"
+#endif
+}
+
+/* Every slot is closed with an ABORT, never a graceful FIN. The peers we
+ * drop here are dead or being evicted: a FIN to a peer that vanished (cable
+ * pull) leaves the pcb in FIN_WAIT_1 retransmitting for minutes, and a few
+ * such pcbs exhaust MEMP_NUM_TCP_PCB — LwIP then silently drops every new
+ * SYN and the module looks dead to Modbus while PDP still answers. Seen on
+ * the bench after ~5 cable pulls. tcp_abort() frees the pcb at once; a live
+ * Modbus client copes with RST exactly as with FIN. */
 static void client_close(mb_client_t* c)
 {
     inbuf_release(c);
     if (c->conn != NULL) {
-        netconn_close(c->conn);
+        conn_abort(c->conn);
         netconn_delete(c->conn);
         c->conn = NULL;
         if (s_client_count > 0u) { s_client_count--; }
@@ -280,7 +314,7 @@ static void modbus_tcp_server_thread(void* arg)
         }
 
         /* 2. Link down → drop everyone, nothing else to do. */
-        if (!g_eth_any_link_up) {
+        if (!g_eth_link_stable) {
             if (s_client_count != 0u) { close_all(); }
             osDelay(MB_IDLE_SLEEP_MS);
             continue;
@@ -298,9 +332,21 @@ static void modbus_tcp_server_thread(void* arg)
             c->txbuf_len = 0u;
             const nmbs_error e = nmbs_server_poll(&c->mb);
             if (e == NMBS_ERROR_NONE) {
-                mb_flush(c);                       /* one TCP segment per response */
-                modbus_app_notify_request();
-                c->last_activity = osKernelGetTickCount();
+                /* nanoMODBUS returns NONE both for "request handled" and for
+                 * "nothing arrived within the read timeout" (first-byte
+                 * timeout). Only a produced response proves a request: every
+                 * valid unicast request gets one (data or exception). Treating
+                 * the idle case as a request kept last_activity fresh forever
+                 * (idle-drop never fired), lit the POLLING pattern for any
+                 * connected-but-silent client and — worst — fed the comms-loss
+                 * timer of the output modules from a silent connection. */
+                if (c->txbuf_len != 0u) {
+                    mb_flush(c);                   /* one TCP segment per response */
+                    modbus_app_notify_request();
+                    c->last_activity = osKernelGetTickCount();
+                } else if ((osKernelGetTickCount() - c->last_activity) >= MB_IDLE_DROP_MS) {
+                    client_close(c);               /* silent peer → free the slot */
+                }
             } else if (e == NMBS_ERROR_TIMEOUT) {
                 if ((osKernelGetTickCount() - c->last_activity) >= MB_IDLE_DROP_MS) {
                     client_close(c);               /* silent peer → free the slot */

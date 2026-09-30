@@ -215,15 +215,13 @@ static void update_led_state_from_traffic(void)
     const uint32_t now      = HAL_GetTick();
     const uint32_t last_req = modbus_app_last_request_tick();
 
-    /* "Polling" if a Modbus client is currently connected AND we have seen
-     * a request in the last 5 s. Otherwise "no polling". */
-    extern bool modbus_tcp_server_has_client(void);
-    const bool has_client    = modbus_tcp_server_has_client();
-    const bool recent_traffic = (last_req != 0u) && ((now - last_req) <= 5000u);
+    /* "Polling" for one double-blink period after every valid Modbus request.
+     * A single request is a poll too, and clients that open a connection per
+     * request must not be mistaken for silence, so the connection state is
+     * deliberately not part of the condition. */
+    const bool recent_traffic = (last_req != 0u) && ((now - last_req) <= LED_POLLING_PERIOD_MS);
 
-    led_module_set_state((has_client && recent_traffic)
-                         ? LED_STATE_POLLING
-                         : LED_STATE_NO_POLLING);
+    led_module_set_state(recent_traffic ? LED_STATE_POLLING : LED_STATE_NO_POLLING);
 }
 
 /* ---------------------------------------------------------------------------

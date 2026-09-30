@@ -29,7 +29,7 @@
 #define LED_PULSE_GAP_MS        150u    /* off-time between pulses inside one burst */
 
 #define LED_NOPOLL_PERIOD_MS    3000u
-#define LED_POLLING_PERIOD_MS   1500u
+/* LED_POLLING_PERIOD_MS lives in led_module.h (shared with app.c). */
 
 #define LED_NOPOLL_PULSES       1u
 #define LED_POLLING_PULSES      2u

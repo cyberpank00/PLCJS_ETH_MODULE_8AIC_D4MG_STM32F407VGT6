@@ -115,6 +115,13 @@ ETH_DMADescTypeDef  DMATxDscrTab[ETH_TX_DESC_CNT]; /* Ethernet Tx DMA Descriptor
 /* USER CODE BEGIN 2 */
 /* Live link state: 1 = at least one KSZ8863 external port has link. */
 volatile uint8_t g_eth_any_link_up = 0u;
+/* Debounced view: follows netif link state (LINK_DOWN_DEBOUNCE_MS to drop,
+ * immediate to restore). Consumers that tear state down on link loss (the
+ * Modbus server) must use THIS one: right after a cable is plugged back the
+ * KSZ8863 port reports several short link-down blips while auto-negotiation
+ * settles, and acting on the instantaneous flag killed every freshly accepted
+ * client for ~10 s. */
+volatile uint8_t g_eth_link_stable = 0u;
 /* USER CODE END 2 */
 
 osSemaphoreId RxPktSemaphore = NULL;   /* Semaphore to signal incoming packets */
@@ -574,6 +581,7 @@ void ethernet_link_thread(void* argument)
   HAL_ETH_Start_IT(&heth);
   netif_set_link_up(netif);
   g_eth_any_link_up = 1u;
+  g_eth_link_stable = 1u;
 /* USER CODE END ETH link init */
 
 #define LINK_DOWN_DEBOUNCE_MS  2000u
@@ -602,10 +610,11 @@ void ethernet_link_thread(void* argument)
     if (any_up) {
       link_down_start = 0u;
       if (!netif_link_is_up) {
-        /* Link restored -- bring netif back up. */
-        HAL_ETH_Start_IT(&heth);
+        /* Link restored -- tell LwIP (gratuitous ARP, DHCP restart). The MAC
+         * itself was never stopped, see below. */
         netif_set_link_up(netif);
         netif_link_is_up = true;
+        g_eth_link_stable = 1u;
         /* Restart DHCP if configured. */
         if (settings_get()->use_dhcp) {
           dhcp_start(netif);
@@ -618,9 +627,15 @@ void ethernet_link_thread(void* argument)
         if (link_down_start == 0u) { link_down_start = 1u; }
       }
       if ((osKernelGetTickCount() - link_down_start) >= LINK_DOWN_DEBOUNCE_MS) {
+        /* Do NOT HAL_ETH_Stop_IT()/Start_IT() here (the CubeMX template does,
+         * for a PHY whose MII clock dies with the cable). Our MAC talks to
+         * KSZ8863 port 3 over an internal, always-up MII link; and the HAL's
+         * Start_IT re-arms every RX descriptor without resyncing the read
+         * index with the DMA position, after which received frames surface
+         * only when later frames push them through the ring. */
         netif_set_link_down(netif);
-        HAL_ETH_Stop_IT(&heth);
         netif_link_is_up = false;
+        g_eth_link_stable = 0u;
       }
     }
 /* USER CODE END ETH link Thread core code for User BSP */

@@ -33,6 +33,11 @@ extern "C" {
 #endif
 
 /* Default and clamp values for the LED_STATE_FACTORY_RESET blink pattern. */
+/* Period of the POLLING double-blink. Also the window after the last Modbus
+ * request during which the module still reports "being polled": one request
+ * is one poll and earns exactly one burst. */
+#define LED_POLLING_PERIOD_MS       1500u
+
 #define LED_FRESET_DEFAULT_ON_MS    100u
 #define LED_FRESET_DEFAULT_OFF_MS   100u
 #define LED_FRESET_MIN_MS           10u
