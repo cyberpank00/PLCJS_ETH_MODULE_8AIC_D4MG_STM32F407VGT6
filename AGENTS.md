@@ -63,6 +63,7 @@ board). Diff carefully afterwards.
 | `modbus/modbus_tcp_server.c` | Multi-client (4 slots) TCP server on LwIP netconn; when full, the longest-silent client is evicted (newest-wins). |
 | `settings/` | Flash-backed settings, CRC32-protected. |
 | `discovery/` | PDP responder, UDP/20556 broadcast. |
+| `addr_probe/` | Non-blocking ARP address-in-use probe (3 probes + wait, lwIP timers), identical to the bootloader's copy. PDP `SET_NET` (static/link-local) is applied only after it; status 1 = address taken. **`LWIP/Target/ethernetif.c` must call `addr_probe_input(p)` for every received frame before `netif->input()`.** |
 | `net_id/` | MAC and link-local IPv4 derived from the 96-bit MCU UID. |
 | `ksz8863/` | SMI/MIIM driver for the Ethernet switch. |
 | `led/`, `button/` | STAT_LED state machine; FACT_RES button. |
@@ -112,7 +113,7 @@ Keep it that way.
 ### Single sources of truth
 - **Module identity** — `Application/fw_header/fw_header.h`:
   `FW_PRODUCT_ID = 0x504C0804`, `FW_HW_REVISION = 0x0101`,
-  `FW_VERSION_VALUE = 0x0105`.
+  `FW_VERSION_VALUE = 0x0106`.
 - **Firmware version over Modbus** — IR120/IR121 derive from `FW_VERSION_VALUE`.
 - **Register map** — the header comment of `modbus_app.h`, mirrored by the
   `MB_*` constants. Keep comment and constants in step.
@@ -123,7 +124,7 @@ Keep it that way.
 ### Version policy — bump the minor on every change
 
 **Mandatory.** Every change to firmware behaviour ships with `FW_VERSION_VALUE`
-in `fw_header.h` incremented by one minor (`0x0105` → `0x0106`). The version is
+in `fw_header.h` incremented by one minor (`0x0106` → `0x0107`). The version is
 the operator's only way to tell which build is running on a device in the field.
 
 - Minor bump: any firmware-only change — fixes, features, register-map
@@ -175,6 +176,16 @@ Two ordering constraints inherited from 12DI, both load-bearing:
 
 ## Gotchas
 
+- **`SET_NET` is probed, then saved.** `discovery.c` does not touch `settings_t`
+  until `addr_probe` reports the address free (status 0 after ~1 s, status 1 if
+  taken); re-applying the current address and retransmits of the pending request
+  are handled without a new probe. `MEMP_NUM_SYS_TIMEOUT` is 6 (DHCP + ARP + TCP +
+  reassembly + the probe timer) — keep it above the lwIP default when adding
+  timers. Boot-time stored static addresses are not probed.
+- **Settings-save bookkeeping.** `settings_save()` wraps the Flash write
+  (+ read-back) and counts successes: IR129 = saves since boot, IR130 = last
+  result (0 none, 1 ok, 2 failed). Tools use it to confirm a save; keep every
+  save going through `settings_save()`.
 - **Device name is 15 chars + NUL in a fixed 16-byte field**, and the PDP
   IDENTIFY response is a fixed 38 bytes. Must stay identical across every module
   variant and ModbusTool.

@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include "net_id.h"
+#include "addr_probe.h"
 #include "settings.h"
 #include "led_module.h"
 #include "fw_header.h"
@@ -96,6 +97,36 @@ static void pdp_reply_status(uint8_t req_op, const uint8_t txid[2], uint8_t stat
     pdp_send((uint8_t)(req_op | PDP_RESP_FLAG), txid, &status, 1u);
 }
 
+/* SET_NET is applied only after the address passed the in-use probe. */
+static bool    s_set_pending;
+static uint8_t s_set_txid[2];
+static uint8_t s_set_mode;
+static uint8_t s_set_addr[12];   /* ip, netmask, gateway (static mode) */
+
+static void set_net_commit(uint8_t mode, const uint8_t addr[12])
+{
+    settings_t* s = settings_get();
+    s->use_dhcp = mode;
+    if (mode == NET_MODE_STATIC) {
+        memcpy(s->ip,      &addr[0], 4);
+        memcpy(s->netmask, &addr[4], 4);
+        memcpy(s->gateway, &addr[8], 4);
+    }
+    s_pending_save = 1u;
+}
+
+static void set_net_probe_done(bool in_use, void* arg)
+{
+    LWIP_UNUSED_ARG(arg);
+    s_set_pending = false;
+    if (in_use) {
+        pdp_reply_status(PDP_OP_SET_NET, s_set_txid, PDP_STATUS_ERR);
+        return;
+    }
+    set_net_commit(s_set_mode, s_set_addr);
+    pdp_reply_status(PDP_OP_SET_NET, s_set_txid, PDP_STATUS_OK);
+}
+
 static void pdp_recv(void* arg, struct udp_pcb* pcb, struct pbuf* p,
                      const ip_addr_t* addr, u16_t port)
 {
@@ -158,16 +189,41 @@ static void pdp_recv(void* arg, struct udp_pcb* pcb, struct pbuf* p,
         if (plen < 1u) { pdp_reply_status(opcode, txid, PDP_STATUS_ERR); break; }
         const uint8_t mode = pl[0];
         if (mode > NET_MODE_LINKLOCAL) { pdp_reply_status(opcode, txid, PDP_STATUS_ERR); break; }
-        settings_t* s = settings_get();
-        s->use_dhcp = mode;
+        if (mode == NET_MODE_STATIC && plen < 13u) { pdp_reply_status(opcode, txid, PDP_STATUS_ERR); break; }
+
+        uint8_t addr[12] = {0};
+        ip4_addr_t cand;
+        bool probe = true;
         if (mode == NET_MODE_STATIC) {
-            if (plen < 13u) { pdp_reply_status(opcode, txid, PDP_STATUS_ERR); break; }
-            memcpy(s->ip,      &pl[1], 4);
-            memcpy(s->netmask, &pl[5], 4);
-            memcpy(s->gateway, &pl[9], 4);
+            memcpy(addr, &pl[1], 12);
+            IP4_ADDR(&cand, pl[1], pl[2], pl[3], pl[4]);
+        } else if (mode == NET_MODE_LINKLOCAL) {
+            uint8_t ll[4];
+            net_id_get_linklocal(ll);
+            IP4_ADDR(&cand, ll[0], ll[1], ll[2], ll[3]);
+        } else {
+            probe = false;   /* DHCP assigns nothing here */
         }
-        s_pending_save = 1u;
-        pdp_reply_status(opcode, txid, PDP_STATUS_OK);
+
+        /* Re-applying the address the device already has needs no probe. */
+        if (!probe || ip4_addr_cmp(&cand, netif_ip4_addr(&gnetif))) {
+            set_net_commit(mode, addr);
+            pdp_reply_status(opcode, txid, PDP_STATUS_OK);
+            break;
+        }
+        /* A retransmit of the request being probed gets the single answer later. */
+        if (s_set_pending) {
+            if (memcmp(txid, s_set_txid, 2) != 0) { pdp_reply_status(opcode, txid, PDP_STATUS_ERR); }
+            break;
+        }
+        s_set_mode = mode;
+        memcpy(s_set_addr, addr, sizeof(s_set_addr));
+        memcpy(s_set_txid, txid, 2);
+        s_set_pending = true;
+        if (!addr_probe_start(&gnetif, &cand, set_net_probe_done, NULL)) {
+            s_set_pending = false;
+            pdp_reply_status(opcode, txid, PDP_STATUS_ERR);
+        }
         break;
     }
     case PDP_OP_SET_NAME: {

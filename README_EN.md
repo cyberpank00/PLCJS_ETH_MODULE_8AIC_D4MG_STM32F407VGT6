@@ -110,7 +110,9 @@ by quantity: 8 consecutive registers (or pairs) = channels 0..7.
 | 340..355 | int32 ×8 | 24-bit signed ADC code |
 
 Global: `120` fw major, `121` fw minor, `122/123` uptime s, `125` module id
-(`0x08AC`), `126` MCU temperature (signed 0.1 °C), `127` calibration lock mask.
+(`0x08AC`), `126` MCU temperature (signed 0.1 °C), `127` calibration lock mask,
+`129` successful settings saves since boot (Flash written and verified by read-back),
+`130` last save result (0 none, 1 OK, 2 failed).
 
 ### Global settings — Holding Registers
 
@@ -152,7 +154,7 @@ cmake --build --preset Debug
 ```
 
 Identity — `Application/fw_header/fw_header.h`: `FW_PRODUCT_ID=0x504C0804`,
-`FW_HW_REVISION=0x0101`, `FW_VERSION_VALUE=0x0105`.
+`FW_HW_REVISION=0x0101`, `FW_VERSION_VALUE=0x0106`.
 
 ## Flashing
 

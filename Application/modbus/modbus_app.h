@@ -30,6 +30,8 @@
   *    Global:
   *      120 fw major, 121 fw minor, 122/123 uptime s (lo/hi),
   *      125 module id (0x08AC), 126 on-chip temperature (signed 0.1 °C)
+  *      129 settings saves since boot (Flash written + read-back), 130 last save
+  *      result (0 none, 1 ok, 2 failed)
   *      127 calibration lock bitmask (bit = channel)
   *
   *  ---- Holding Registers (FC03/06/16) — global -----------------------------
@@ -110,6 +112,8 @@ extern "C" {
 #define MB_IR_FW_VER_MINOR          121u
 #define MB_IR_UPTIME_LO             122u
 #define MB_IR_UPTIME_HI             123u
+#define MB_IR_SAVE_COUNT            129u  /* successful settings saves since boot */
+#define MB_IR_SAVE_RESULT           130u  /* last save: 0 none, 1 ok, 2 failed    */
 #define MB_IR_MODULE_ID             125u
 #define MB_IR_TEMPERATURE           126u
 #define MB_IR_CAL_LOCK              127u

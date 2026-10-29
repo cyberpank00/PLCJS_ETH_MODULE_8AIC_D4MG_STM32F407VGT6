@@ -123,7 +123,7 @@ settings_t* settings_get(void)
 /* ---------------------------------------------------------------------------
  * Save: erase sector, then program 32-bit words, then verify CRC
  * ------------------------------------------------------------------------- */
-bool settings_save(void)
+static bool settings_save_flash(void)
 {
     s_settings.crc32 = settings_crc(&s_settings);
 
@@ -173,3 +173,20 @@ bool settings_save(void)
     /* Verify */
     return memcmp((const void*)SETTINGS_FLASH_ADDR, &s_settings, sizeof(s_settings)) == 0;
 }
+
+/* Save bookkeeping since boot, reported over Modbus (IR129/IR130): a tool reads
+ * the counter, triggers a save and sees it advance only when the Flash write and
+ * its read-back succeeded. result: 0 = no save yet, 1 = last save OK, 2 = failed. */
+static uint16_t s_save_count;
+static uint16_t s_save_result;
+
+bool settings_save(void)
+{
+    const bool ok = settings_save_flash();
+    s_save_result = ok ? 1u : 2u;
+    if (ok) { s_save_count++; }
+    return ok;
+}
+
+uint16_t settings_save_count(void)  { return s_save_count; }
+uint16_t settings_save_result(void) { return s_save_result; }

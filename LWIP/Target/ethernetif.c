@@ -30,6 +30,7 @@
 #include "ksz8863.h"
 #include "lwip/dhcp.h"
 #include "net_id.h"
+#include "addr_probe.h"
 #include "settings.h"
 /* USER CODE END Include for User BSP */
 #include <string.h>
@@ -439,6 +440,7 @@ void ethernetif_input(void* argument)
         if (p != NULL)
         {
           ethernetif_rx_frame_cnt++;
+          addr_probe_input(p);
           if (netif->input( p, netif) != ERR_OK )
           {
             pbuf_free(p);

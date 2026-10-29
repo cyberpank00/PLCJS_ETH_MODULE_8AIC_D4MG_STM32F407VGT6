@@ -61,7 +61,7 @@ typedef struct __attribute__((packed)) {
 #define FW_HW_REVISION   0x0101u  /* hw:01.01 */
 #endif
 #ifndef FW_VERSION_VALUE
-#define FW_VERSION_VALUE 0x0105u  /* fw:01.05 */
+#define FW_VERSION_VALUE 0x0106u  /* fw:01.06 */
 #endif
 
 /** The single header instance placed in the .fw_header linker section. */

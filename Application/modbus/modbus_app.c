@@ -202,6 +202,8 @@ static uint16_t read_input(uint16_t address)
     case MB_IR_MODULE_ID:    return MODULE_ID_08AIC;
     case MB_IR_TEMPERATURE:  return (uint16_t)temp_module_read_decicelsius();
     case MB_IR_CAL_LOCK:     return (uint16_t)(calstore_lock_mask() & 0xFFFFu);
+    case MB_IR_SAVE_COUNT:      return settings_save_count();
+    case MB_IR_SAVE_RESULT:     return settings_save_result();
     default:                 return 0u;
     }
 }
@@ -217,6 +219,8 @@ static bool input_address_valid(uint16_t address)
     case MB_IR_MODULE_ID:
     case MB_IR_TEMPERATURE:
     case MB_IR_CAL_LOCK:
+    case MB_IR_SAVE_COUNT:
+    case MB_IR_SAVE_RESULT:
         return true;
     default:
         return false;

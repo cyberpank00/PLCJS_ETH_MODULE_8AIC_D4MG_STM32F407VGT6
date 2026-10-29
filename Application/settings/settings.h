@@ -141,6 +141,9 @@ void settings_reset_to_defaults(void);
 
 /** Persist the current in-memory settings to internal Flash. */
 bool settings_save(void);
+/* Successful saves since boot / last result (0 none, 1 ok, 2 failed). */
+uint16_t settings_save_count(void);
+uint16_t settings_save_result(void);
 
 /** Get a pointer to the live in-memory settings. */
 settings_t* settings_get(void);

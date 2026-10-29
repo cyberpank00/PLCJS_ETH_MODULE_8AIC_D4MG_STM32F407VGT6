@@ -63,6 +63,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ksz8863/ksz8863.c
     Application/net_id/net_id.c
     Application/discovery/discovery.c
+    Application/addr_probe/addr_probe.c
     Application/settings/settings.c
     Application/calstore/calstore.c
     Application/modbus/modbus_app.c
@@ -85,6 +86,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Application/ksz8863
     Application/net_id
     Application/discovery
+    Application/addr_probe
     Application/settings
     Application/calstore
     Application/modbus
