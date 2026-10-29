@@ -176,6 +176,13 @@ Two ordering constraints inherited from 12DI, both load-bearing:
 
 ## Gotchas
 
+- **Flashing the application over SWD (IDE/debugger) is not enough.** Since
+  bootloader 1.8 the boot decision CRC-checks the installed image against the
+  size/CRC in the sector-5 metadata, so an app written without matching metadata
+  leaves the board in the bootloader. OTA is the supported path; for RMA/debug use
+  `BOOTLOADER_PLCJS_ETH_MODULE_STM32F407VGT6/scripts/service_flash.ps1 -AppBin
+  <app.bin>` (writes app + metadata, never mass-erases, keeps settings and the
+  write-once calibration).
 - **`SET_NET` is probed, then saved.** `discovery.c` does not touch `settings_t`
   until `addr_probe` reports the address free (status 0 after ~1 s, status 1 if
   taken); re-applying the current address and retransmits of the pending request
